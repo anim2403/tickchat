@@ -23,15 +23,23 @@ if "new_ticket_classification" not in st.session_state:
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 def get_classification(ticket):
+    # Retrieve cached classification if available
     if ticket["id"] in st.session_state.classifications:
         return st.session_state.classifications[ticket["id"]]
     try:
-        classification = classify_ticket(client, ticket["subject"], ticket["body"])
+        analysis, classification = classify_ticket(client, ticket["subject"], ticket["body"])
     except Exception as e:
-        st.warning(f"Classification failed for {ticket['id']}: {e}")
+        analysis = {
+            "prompt": {
+                "system": "",
+                "user": ""
+            },
+            "raw_output": "",
+            "error": f"Classification failed for {ticket['id']}: {e}",
+        }
         classification = TicketClassification(topic_tags=[], core_problem="", priority="", sentiment="")
-    st.session_state.classifications[ticket["id"]] = classification
-    return classification
+    st.session_state.classifications[ticket["id"]] = (analysis, classification)
+    return analysis, classification
 
 def badge(text, color="#e63946"):
     return f"""<span style="
@@ -46,10 +54,22 @@ def badge(text, color="#e63946"):
         box-shadow: 0 2px 8px rgba(0,0,0,0.12);
     ">{text}</span>"""
 
-def ticket_menu_row(ticket, classification):
+def ticket_menu_row(ticket, analysis, classification):
     st.write(f"**ID:** {ticket['id']}")
     st.write(f"**Subject:** {ticket['subject']}")
     st.write(f"**Body:** {ticket['body']}")
+
+    # --- Internal Backend View (AI's Internal Analysis) ---
+    with st.expander("🔍 AI's Internal Analysis (Back-end view)", expanded=False):
+        st.markdown("**Prompt sent to LLM:**")
+        st.code(json.dumps(analysis.get("prompt", {}), indent=2), language="json")
+        st.markdown("**Raw Output from LLM:**")
+        st.code(analysis.get("raw_output", "") or "No output", language="json")
+        if analysis.get("error"):
+            st.markdown("**Error / Reasoning:**")
+            st.code(analysis["error"], language="text")
+
+    # --- Front-end View (Final Classification) ---
     topic_tags_html = "".join([badge(topic_tag) for topic_tag in classification.topic_tags])
     core_problem_html = badge(classification.core_problem)
     priority_html = badge(classification.priority)
@@ -69,8 +89,8 @@ option = st.radio(
 if option == "Categorise sample tickets":
     st.subheader("Sample Tickets and Classification")
     for ticket in tickets:
-        classification = get_classification(ticket)
-        ticket_menu_row(ticket, classification)
+        analysis, classification = get_classification(ticket)
+        ticket_menu_row(ticket, analysis, classification)
 
 elif option == "Enter a new ticket":
     st.subheader("Add and Classify a New Ticket")
@@ -82,13 +102,13 @@ elif option == "Enter a new ticket":
     if submitted and new_id and new_subject and new_body:
         new_ticket = {"id": new_id, "subject": new_subject, "body": new_body}
         try:
-            classification = classify_ticket(client, new_subject, new_body)
-            st.session_state.new_ticket_classification = (new_ticket, classification)
+            analysis, classification = classify_ticket(client, new_subject, new_body)
+            st.session_state.new_ticket_classification = (new_ticket, analysis, classification)
             st.success("Ticket classified!")
         except Exception as e:
             st.session_state.new_ticket_classification = None
             st.error(f"Classification failed: {e}")
     if st.session_state.new_ticket_classification:
         st.markdown("### New Ticket Classification")
-        new_ticket, classification = st.session_state.new_ticket_classification
-        ticket_menu_row(new_ticket, classification)
+        new_ticket, analysis, classification = st.session_state.new_ticket_classification
+        ticket_menu_row(new_ticket, analysis, classification)
