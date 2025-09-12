@@ -33,27 +33,54 @@ def _parse_json_strict(raw: str):
         raw = raw[:-3].strip()
     return json.loads(raw)
 
-def classify_ticket(client: Groq, subject: str, body: str, model: str = "llama-3.1-8b-instant") -> TicketClassification:
+def classify_ticket(client: Groq, subject: str, body: str, model: str = "llama-3.1-8b-instant"):
     ticket_text = f"Subject: {subject}\nBody: {body}"
-    completion = client.chat.completions.create(
-        model=model,
-        temperature=0,
-        messages=[
-            {"role": "system", "content": SYSTEM_INSTRUCTIONS},
-            {"role": "user", "content": ticket_text},
-        ],
-    )
+    system_message = SYSTEM_INSTRUCTIONS
+    user_message = ticket_text
+    prompt = {
+        "system": system_message,
+        "user": user_message
+    }
+    raw_output = None
+    error = None
     try:
-        raw = completion.choices[0].message["content"]
-    except Exception:
-        raw = completion.choices[0].message.content
+        completion = client.chat.completions.create(
+            model=model,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": user_message},
+            ],
+        )
+        print("DEBUG: completion =", completion)
+        if hasattr(completion.choices[0].message, "content"):
+            raw_output = completion.choices[0].message.content
+        elif isinstance(completion.choices[0].message, dict) and "content" in completion.choices[0].message:
+            raw_output = completion.choices[0].message["content"]
+        else:
+            print("DEBUG: Unexpected message structure:", completion.choices[0].message)
+            raw_output = None
+        print("DEBUG: raw_output =", raw_output)
+        if not raw_output:
+            error = "Model did not return any output."
+    except Exception as e:
+        raw_output = None
+        error = str(e)
+
+    analysis = {
+        "prompt": prompt,
+        "raw_output": raw_output,
+        "error": error
+    }
 
     try:
-        data = _parse_json_strict(raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Model returned invalid JSON: {raw}") from e
+        if raw_output:
+            data = _parse_json_strict(raw_output)
+            classification = TicketClassification(**data)
+        else:
+            classification = TicketClassification(topic_tags=[], core_problem="", priority="", sentiment="")
+    except Exception as e:
+        classification = TicketClassification(topic_tags=[], core_problem="", priority="", sentiment="")
+        analysis["error"] = str(e)
 
-    try:
-        return TicketClassification(**data)
-    except ValidationError as ve:
-        raise ValueError(f"Model JSON failed schema validation:\n{ve}\n\nJSON was: {data}") from ve
+    return analysis, classification
