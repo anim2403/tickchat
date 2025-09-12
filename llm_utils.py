@@ -4,7 +4,7 @@ from models import TicketClassification
 from pydantic import ValidationError
 
 TOPIC_TAG_OPTIONS = [
-    "How-to", "Product", "Connector", "Lineage", "API/SDK", 
+    "How-to", "Product", "Connector", "Lineage", "API/SDK",
     "SSO", "Glossary", "Best practices", "Sensitive data"
 ]
 PRIORITY_OPTIONS = ["P0", "P1", "P2"]
@@ -15,15 +15,16 @@ You are an expert support ticket classifier.
 Given a support ticket, classify it in this JSON schema:
 {{
   "topic_tags": [list, choose relevant from {TOPIC_TAG_OPTIONS}],
+  "topic_tag_confidence": {{tag: score, ...}},  // confidence score (0-1) for each topic_tag
   "core_problem": "short topic string",
   "priority": "P0, P1, or P2",
   "sentiment": "Frustrated, Curious, Angry, Neutral"
 }}
 Only output valid JSON. No explanation.
+For topic_tag_confidence, provide the model's confidence (probability, 0 to 1) for each tag in topic_tags.
 """
 
 def _parse_json_strict(raw: str):
-    # Remove code block formatting if present
     raw = raw.strip()
     if raw.startswith("```json"):
         raw = raw[len("```json"):].strip()
@@ -78,9 +79,9 @@ def classify_ticket(client: Groq, subject: str, body: str, model: str = "llama-3
             data = _parse_json_strict(raw_output)
             classification = TicketClassification(**data)
         else:
-            classification = TicketClassification(topic_tags=[], core_problem="", priority="", sentiment="")
+            classification = TicketClassification(topic_tags=[], topic_tag_confidence={}, core_problem="", priority="", sentiment="")
     except Exception as e:
-        classification = TicketClassification(topic_tags=[], core_problem="", priority="", sentiment="")
+        classification = TicketClassification(topic_tags=[], topic_tag_confidence={}, core_problem="", priority="", sentiment="")
         analysis["error"] = str(e)
 
     return analysis, classification
