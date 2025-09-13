@@ -5,8 +5,8 @@ import streamlit as st
 import json
 import os
 from groq import Groq
-from models2 import TicketClassification
-from llm_utils2 import classify_ticket
+from models import TicketClassification
+from llm_utils import classify_ticket
 from rag_pipeline import AtlanRAGPipeline
 
 st.set_page_config(page_title="Ticket Classifier with AI Help", layout="wide")
